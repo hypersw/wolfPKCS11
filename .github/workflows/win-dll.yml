@@ -1,0 +1,85 @@
+name: Windows DLL Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'dll-*' ]
+
+permissions:            # for actions/attest-build-provenance
+  id-token: write
+  attestations: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    name: build-${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: release          # quiet, production DLL
+            verbose: ''
+            out: wolfpkcs11.dll
+          - variant: debug            # full wolfSSL/wolfTPM/wolfPKCS11 logging for field diagnosis
+            verbose: ' /DWOLFPKCS11_VERBOSE_BUILD'
+            out: wolfpkcs11-debug.dll
+    steps:
+      - name: Checkout wolfPKCS11 (this fork)
+        uses: actions/checkout@v4
+        with: { path: wolfpkcs11 }
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+        with: { repository: wolfssl/wolftpm, path: wolftpm }
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with: { repository: wolfssl/wolfssl, path: wolfssl }
+
+      - name: Create FIPS stub files (autogen expectation)
+        working-directory: wolfssl
+        run: |
+          echo $null >> wolfcrypt\src\fips.c
+          echo $null >> wolfcrypt\src\fips_test.c
+          echo $null >> wolfcrypt\src\wolfcrypt_first.c
+          echo $null >> wolfcrypt\src\wolfcrypt_last.c
+
+      - name: Set up MSVC env (cl + dumpbin)
+        uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: x64 }
+      - name: Add MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build self-contained provider DLL (${{ matrix.variant }})
+        env:
+          CL: /DWP11_DLL /DBUILDING_WOLFPKCS11${{ matrix.verbose }}   # export C_* API; opt-in verbose logging
+          LINK: tbs.lib ws2_32.lib                                    # TBS for wolfTPM; ws2_32 for wolfSSL
+          _CL_: /MT                                                   # static CRT; appended so /MT beats project /MD
+        # Static 'Release' config: wolfSSL/wolfTPM are StaticLibrary and fold into
+        # wolfpkcs11 (flipped to DynamicLibrary) -> a single self-contained DLL.
+        run: msbuild /m /t:wolfpkcs11 /p:PlatformToolset=v143 /p:Platform=x64 /p:Configuration=Release wolfpkcs11\IDE\VisualStudio\wolfpkcs11.sln
+
+      - name: Acceptance gate (single, self-contained, exports C_GetFunctionList)
+        shell: pwsh
+        run: |
+          $dir   = "wolfpkcs11\IDE\VisualStudio\Release\x64"
+          $built = "$dir\wolfpkcs11.dll"
+          if (-not (Test-Path $built)) { throw "wolfpkcs11.dll not produced at $dir" }
+          $dll = "$dir\${{ matrix.out }}"
+          if ($built -ne $dll) { Move-Item -Force $built $dll }
+          if (-not (dumpbin /exports "$dll" | Select-String 'C_GetFunctionList')) { throw "C_GetFunctionList NOT exported" }
+          $deps = dumpbin /dependents "$dll"
+          Write-Host "Dependents:"; ($deps | Select-String '\.dll') | ForEach-Object { Write-Host ("   " + $_.Line.Trim()) }
+          if ($deps | Select-String -Pattern 'wolfssl\.dll|wolftpm\.dll') { throw "not self-contained (wolf companion DLL present)" }
+          if ($deps | Select-String -Pattern 'vcruntime|ucrtbase|msvcp|api-ms-win-crt') { throw "dynamic CRT dependency present — /MT static CRT did not take" }
+          Write-Host ("OK: {0}  {1:N0} bytes" -f "${{ matrix.out }}", (Get-Item $dll).Length)
+
+      - name: Upload DLL
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfpkcs11-x64-${{ matrix.variant }}
+          path: wolfpkcs11\IDE\VisualStudio\Release\x64\${{ matrix.out }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: wolfpkcs11\IDE\VisualStudio\Release\x64\${{ matrix.out }}
