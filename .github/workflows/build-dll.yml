@@ -18,10 +18,10 @@ jobs:
         with: { path: wolfpkcs11 }
       - name: Checkout wolfTPM
         uses: actions/checkout@v4
-        with: { repository: wolfssl/wolftpm, ref: vX.Y.Z, path: wolftpm }   # pin a release tag
+        with: { repository: wolfssl/wolftpm, path: wolftpm }   # pin a release tag
       - name: Checkout wolfSSL
         uses: actions/checkout@v4
-        with: { repository: wolfssl/wolfssl, ref: vX.Y.Z, path: wolfssl }   # pin a release tag
+        with: { repository: wolfssl/wolfssl, path: wolfssl }   # pin a release tag
 
       - name: Create FIPS stub files (autogen expectation)   # copied from stock win-test.yml
         working-directory: wolfssl
