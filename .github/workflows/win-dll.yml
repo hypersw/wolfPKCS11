@@ -13,17 +13,26 @@ permissions:            # for actions/attest-build-provenance
 jobs:
   build:
     runs-on: windows-latest
-    name: build-${{ matrix.variant }}
+    name: build-${{ matrix.id }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - variant: release          # quiet, production DLL
-            verbose: ''
-            out: wolfpkcs11.dll
-          - variant: debug            # full wolfSSL/wolfTPM/wolfPKCS11 logging for field diagnosis
-            verbose: ' /DWOLFPKCS11_VERBOSE_BUILD'
-            out: wolfpkcs11-debug.dll
+          # ABI: 'posix' = natural alignment (for Cygwin consumers, e.g. Git's ssh);
+          #      'native' = 1-byte packed CK_* structs (correct Win32 convention; for pkcs11-tool/NSS/etc.)
+          # Log: release = quiet; debug = full wolfSSL/wolfTPM/wolfPKCS11 logging.
+          - id: posix
+            extra: ' /DWOLFPKCS11_NO_PACK'
+            out: wolfpkcs11-posix.dll
+          - id: posix-debug
+            extra: ' /DWOLFPKCS11_NO_PACK /DWOLFPKCS11_VERBOSE_BUILD'
+            out: wolfpkcs11-posix-debug.dll
+          - id: native
+            extra: ''
+            out: wolfpkcs11-native.dll
+          - id: native-debug
+            extra: ' /DWOLFPKCS11_VERBOSE_BUILD'
+            out: wolfpkcs11-native-debug.dll
     steps:
       - name: Checkout wolfPKCS11 (this fork)
         uses: actions/checkout@v4
@@ -49,13 +58,13 @@ jobs:
       - name: Add MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build self-contained provider DLL (${{ matrix.variant }})
+      - name: Build self-contained provider DLL (${{ matrix.id }})
         env:
-          CL: /DWP11_DLL /DBUILDING_WOLFPKCS11${{ matrix.verbose }}   # export C_* API; opt-in verbose logging
-          LINK: tbs.lib ws2_32.lib                                    # TBS for wolfTPM; ws2_32 for wolfSSL
-          _CL_: /MT                                                   # static CRT; appended so /MT beats project /MD
-        # Static 'Release' config: wolfSSL/wolfTPM are StaticLibrary and fold into
-        # wolfpkcs11 (flipped to DynamicLibrary) -> a single self-contained DLL.
+          CL: /DWP11_DLL /DBUILDING_WOLFPKCS11${{ matrix.extra }}   # export C_* API; ABI + verbose toggles
+          LINK: tbs.lib ws2_32.lib                                  # TBS for wolfTPM; ws2_32 for wolfSSL
+          _CL_: /MT                                                 # static CRT; appended so /MT beats project /MD
+        # Static 'Release' config: wolfSSL/wolfTPM (StaticLibrary) fold into wolfpkcs11
+        # (DynamicLibrary) -> a single self-contained DLL.
         run: msbuild /m /t:wolfpkcs11 /p:PlatformToolset=v143 /p:Platform=x64 /p:Configuration=Release wolfpkcs11\IDE\VisualStudio\wolfpkcs11.sln
 
       - name: Acceptance gate (single, self-contained, exports C_GetFunctionList)
@@ -76,7 +85,7 @@ jobs:
       - name: Upload DLL
         uses: actions/upload-artifact@v4
         with:
-          name: wolfpkcs11-x64-${{ matrix.variant }}
+          name: wolfpkcs11-x64-${{ matrix.id }}
           path: wolfpkcs11\IDE\VisualStudio\Release\x64\${{ matrix.out }}
 
       - name: Attest build provenance
