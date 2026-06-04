@@ -40,7 +40,7 @@ jobs:
       - name: Build provider DLL (force PKCS#11 export macros)
         env:
           CL: /DWP11_DLL /DBUILDING_WOLFPKCS11    # <-- THE FIX: makes WP11_API = dllexport
-        run: msbuild /m /t:wolfpkcs11 /p:Platform=x64 /p:Configuration="DLL Release" wolfpkcs11\IDE\VisualStudio\wolfpkcs11.sln
+        run: msbuild /m /t:wolfpkcs11 /p:PlatformToolset=v143 /p:Platform=x64 /p:Configuration="DLL Release" wolfpkcs11\IDE\VisualStudio\wolfpkcs11.sln
 
       - name: Acceptance gate — C_GetFunctionList must be exported
         shell: pwsh
