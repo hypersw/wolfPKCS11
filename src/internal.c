@@ -1340,11 +1340,18 @@ static int wolfPKCS11_Store_Name(int type, CK_ULONG id1, CK_ULONG id2, char* nam
         const char* homeDir = NULL;
 
     #if defined(_WIN32) || defined(_MSC_VER)
-        homeDir = XGETENV("%APPDIR%");
+        /* Default to %LOCALAPPDATA%\wolfPKCS11 (a proper per-user NT path) and
+         * create it if needed.  Upstream used XGETENV("%APPDIR%"), which never
+         * resolves (no env var is literally named "%APPDIR%"), leaving the
+         * token-store path unset unless WOLFPKCS11_TOKEN_PATH was provided. */
+        homeDir = XGETENV("LOCALAPPDATA");
+        if (homeDir == NULL)
+            homeDir = XGETENV("APPDATA");
         if (homeDir != NULL && XSTRLEN(homeDir) <= sizeof(homePath) - 13) {
             int len = XSNPRINTF(homePath, sizeof(homePath), "%s\\wolfPKCS11",
                                 homeDir);
             if (len > 0 && len < (int)sizeof(homePath)) {
+                (void)wolfPKCS11_StoreEnsureDir(homePath);
                 str = homePath;
             }
          }
