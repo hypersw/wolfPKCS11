@@ -46,6 +46,15 @@ extern "C" {
 #endif
 
 
+/* Cryptoki structures are 1-byte packed on native Windows (the documented
+ * Win32 convention used by OpenSC/NSS/etc.). The POSIX/Cygwin build variant
+ * defines WOLFPKCS11_NO_PACK to keep natural alignment, matching Cygwin-built
+ * consumers such as Git for Windows' ssh. Scoped push/pop so only the public
+ * CK_* structures are affected, not wolfPKCS11's internal structs. */
+#if (defined(_WIN32) || defined(CRYPTOKI_FORCE_WIN32)) && !defined(WOLFPKCS11_NO_PACK)
+    #pragma pack(push, cryptoki, 1)
+#endif
+
 #define CKM_VENDOR_DEFINED 0x80000000UL
 #define CKO_VENDOR_DEFINED 0x80000000UL
 #define CKK_VENDOR_DEFINED 0x80000000UL
@@ -1904,6 +1913,10 @@ WP11_API void wolfPKCS11_Debugging_Off(void);
 #else
 #define wolfPKCS11_Debugging_On()
 #define wolfPKCS11_Debugging_Off()
+#endif
+
+#if (defined(_WIN32) || defined(CRYPTOKI_FORCE_WIN32)) && !defined(WOLFPKCS11_NO_PACK)
+    #pragma pack(pop, cryptoki)
 #endif
 
 #ifdef __cplusplus
