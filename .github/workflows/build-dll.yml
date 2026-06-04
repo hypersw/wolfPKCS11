@@ -1,0 +1,62 @@
+name: build-dll
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'dll-*' ]
+
+permissions:           # for the provenance attestation
+  id-token: write
+  attestations: write
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout wolfPKCS11 (this fork)
+        uses: actions/checkout@v4
+        with: { path: wolfpkcs11 }
+      - name: Checkout wolfTPM
+        uses: actions/checkout@v4
+        with: { repository: wolfssl/wolftpm, ref: vX.Y.Z, path: wolftpm }   # pin a release tag
+      - name: Checkout wolfSSL
+        uses: actions/checkout@v4
+        with: { repository: wolfssl/wolfssl, ref: vX.Y.Z, path: wolfssl }   # pin a release tag
+
+      - name: Create FIPS stub files (autogen expectation)   # copied from stock win-test.yml
+        working-directory: wolfssl
+        run: |
+          echo $null >> wolfcrypt\src\fips.c
+          echo $null >> wolfcrypt\src\fips_test.c
+          echo $null >> wolfcrypt\src\wolfcrypt_first.c
+          echo $null >> wolfcrypt\src\wolfcrypt_last.c
+
+      - name: Set up MSVC env (cl + dumpbin)
+        uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: x64 }
+      - name: Add MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build provider DLL (force PKCS#11 export macros)
+        env:
+          CL: /DWP11_DLL /DBUILDING_WOLFPKCS11    # <-- THE FIX: makes WP11_API = dllexport
+        run: msbuild /m /t:wolfpkcs11 /p:Platform=x64 /p:Configuration="DLL Release" wolfpkcs11\IDE\VisualStudio\wolfpkcs11.sln
+
+      - name: Acceptance gate — C_GetFunctionList must be exported
+        shell: pwsh
+        run: |
+          $dll = "wolfpkcs11\IDE\VisualStudio\DLL Release\x64\wolfpkcs11.dll"
+          $hit = dumpbin /exports "$dll" | Select-String 'C_GetFunctionList'
+          if (-not $hit) { throw "C_GetFunctionList NOT exported — export fix did not take" }
+          Write-Host "OK: $hit"
+
+      - name: Upload DLL(s)
+        uses: actions/upload-artifact@v4
+        with:
+          name: wolfpkcs11-x64
+          path: wolfpkcs11\IDE\VisualStudio\DLL Release\x64\*.dll   # glob: catches companion DLLs too
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: wolfpkcs11\IDE\VisualStudio\DLL Release\x64\wolfpkcs11.dll
