@@ -41,6 +41,7 @@ jobs:
         env:
           CL: /DWP11_DLL /DBUILDING_WOLFPKCS11    # makes WP11_API = dllexport
           LINK: tbs.lib ws2_32.lib                # wolfTPM needs TPM Base Services; wolfSSL needs ws2_32
+          _CL_: /MT                               # static CRT; _CL_ is appended so /MT wins over the projects' /MD
         # Build the static 'Release' config: wolfSSL/wolfTPM are StaticLibrary here and get folded into
         # wolfpkcs11.dll (which we flipped to DynamicLibrary) -> a single self-contained provider DLL.
         run: msbuild /m /t:wolfpkcs11 /p:PlatformToolset=v143 /p:Platform=x64 /p:Configuration=Release wolfpkcs11\IDE\VisualStudio\wolfpkcs11.sln
@@ -54,10 +55,10 @@ jobs:
           $hit = dumpbin /exports "$dll" | Select-String 'C_GetFunctionList'
           if (-not $hit) { throw "C_GetFunctionList NOT exported" }
           $deps = dumpbin /dependents "$dll"
-          if ($deps | Select-String 'wolfssl\.dll|wolftpm\.dll') { throw "still depends on wolfssl/wolftpm DLL — not self-contained" }
-          $extra = Get-ChildItem "$dir\*.dll" | Where-Object { $_.Name -ne 'wolfpkcs11.dll' }
-          Write-Host "OK: exported, self-contained. Output DLLs:"; Get-ChildItem "$dir\*.dll" | ForEach-Object { Write-Host (" - {0} ({1:N0} bytes)" -f $_.Name, $_.Length) }
-          if ($extra) { Write-Warning "unexpected extra DLLs present (above)" }
+          Write-Host "Dependents:"; ($deps | Select-String '\.dll') | ForEach-Object { Write-Host ("   " + $_.Line.Trim()) }
+          if ($deps | Select-String -Pattern 'wolfssl\.dll|wolftpm\.dll') { throw "still depends on wolfssl/wolftpm DLL — not self-contained" }
+          if ($deps | Select-String -Pattern 'vcruntime|ucrtbase|msvcp|api-ms-win-crt') { throw "dynamic CRT dependency present — /MT static CRT did not take" }
+          Write-Host ("OK: single self-contained DLL, static CRT. Size: {0:N0} bytes" -f (Get-Item $dll).Length)
 
       - name: Upload DLL
         uses: actions/upload-artifact@v4
