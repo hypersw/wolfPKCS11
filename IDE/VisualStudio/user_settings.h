@@ -43,8 +43,9 @@ extern "C" {
     #define _CRT_SECURE_NO_WARNINGS
 #endif
 
-/* Debugging */
-#if 1
+/* Debugging — off by default (quiet release). The CI 'debug' variant defines
+ * WOLFPKCS11_VERBOSE_BUILD to turn on full wolfSSL/wolfTPM/wolfPKCS11 logging. */
+#ifdef WOLFPKCS11_VERBOSE_BUILD
     #define DEBUG_WOLFSSL
     #define ERROR_QUEUE_PER_THREAD
 
