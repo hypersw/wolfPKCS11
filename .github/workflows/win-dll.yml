@@ -18,14 +18,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ABI: 'posix' = natural alignment (for Cygwin consumers, e.g. Git's ssh);
-          #      'native' = 1-byte packed CK_* structs (correct Win32 convention; for pkcs11-tool/NSS/etc.)
+          # ABI: 'posix' = Cygwin/MSYS-gcc LP64 ABI (natural alignment + 8-byte
+          #        CK_ULONG) for Git-for-Windows' own ssh / ssh-keygen;
+          #      'native' = 1-byte packed CK_* structs, 4-byte CK_ULONG (correct
+          #        Win32/MSVC convention; for pkcs11-tool/NSS/Microsoft OpenSSH).
           # Log: release = quiet; debug = full wolfSSL/wolfTPM/wolfPKCS11 logging.
           - id: posix
-            extra: ' /DWOLFPKCS11_NO_PACK'
+            extra: ' /DWOLFPKCS11_NO_PACK /DWOLFPKCS11_CK_ULONG_8BYTE'
             out: wolfpkcs11-posix.dll
           - id: posix-debug
-            extra: ' /DWOLFPKCS11_NO_PACK /DWOLFPKCS11_VERBOSE_BUILD'
+            extra: ' /DWOLFPKCS11_NO_PACK /DWOLFPKCS11_CK_ULONG_8BYTE /DWOLFPKCS11_VERBOSE_BUILD'
             out: wolfpkcs11-posix-debug.dll
           - id: native
             extra: ''

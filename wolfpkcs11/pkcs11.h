@@ -501,8 +501,17 @@ typedef unsigned char     CK_BYTE;
 typedef CK_BYTE           CK_CHAR;
 typedef CK_BYTE           CK_UTF8CHAR;
 typedef CK_BYTE           CK_BBOOL;
+#if defined(WOLFPKCS11_CK_ULONG_8BYTE)
+/* Match LP64 consumers (Cygwin / Git-for-Windows MSYS-gcc OpenSSH), where
+ * `unsigned long` is 8 bytes. MSVC's `unsigned long` is only 4 bytes (LLP64),
+ * so use `long long` to give CK_ULONG (and thus CK_RV, CK_ATTRIBUTE fields,
+ * and the CK_RV return register) the 8-byte width those callers expect. */
+typedef unsigned long long CK_ULONG;
+typedef long long          CK_LONG;
+#else
 typedef unsigned long int CK_ULONG;
 typedef long int          CK_LONG;
+#endif
 typedef CK_ULONG          CK_FLAGS;
 typedef CK_BYTE*          CK_BYTE_PTR;
 typedef CK_CHAR*          CK_CHAR_PTR;
