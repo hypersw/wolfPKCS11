@@ -2150,13 +2150,20 @@ static int wp11_storage_write_word32(void* storage, word32 val)
 static int wp11_storage_read_ulong(void* storage, CK_ULONG* val)
 {
     int ret;
-    /* Fixed 4-byte, CK_ULONG-width-independent on-disk format. The values
-     * stored this way (object handle, class, key type, key-gen mechanism) are
-     * all 32-bit PKCS#11 constants, so 4 bytes always suffice. Pinning the
-     * width here lets a single store interoperate between the 4-byte CK_ULONG
-     * (native/MSVC) and 8-byte CK_ULONG (posix/LP64) builds, and keeps the
-     * existing native store format (which was sizeof(CK_ULONG)==4) unchanged. */
+    /* On-disk width of a CK_ULONG store field.
+     * On Windows it is pinned to 4 bytes regardless of sizeof(CK_ULONG). The
+     * values stored this way (object handle, class, key type, key-gen
+     * mechanism) are all 32-bit PKCS#11 constants, and pinning the width lets a
+     * single store interoperate between the 4-byte CK_ULONG (native/MSVC) and
+     * 8-byte CK_ULONG (posix/LP64) Windows builds. It is byte-identical to the
+     * long-standing native/MSVC store (sizeof(CK_ULONG)==4 there), so existing
+     * Windows stores are unchanged. Non-Windows platforms keep their native
+     * width, so their store format is left exactly as before. */
+#ifdef _WIN32
     unsigned char num[4];
+#else
+    unsigned char num[sizeof(CK_ULONG)];
+#endif
     int i;
 
     /* Read big-endian byte array. */
@@ -2183,8 +2190,13 @@ static int wp11_storage_read_ulong(void* storage, CK_ULONG* val)
  */
 static int wp11_storage_write_ulong(void* storage, CK_ULONG val)
 {
-    /* Fixed 4-byte format - see wp11_storage_read_ulong for why. */
+    /* On-disk CK_ULONG width - see wp11_storage_read_ulong (4 bytes on Windows,
+     * native sizeof(CK_ULONG) elsewhere). */
+#ifdef _WIN32
     unsigned char num[4];
+#else
+    unsigned char num[sizeof(CK_ULONG)];
+#endif
     int i;
 
     /* Convert unsigned long number to big-endian byte array. */
