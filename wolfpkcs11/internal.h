@@ -751,17 +751,21 @@ WP11_LOCAL int WP11_SetOperationState(WP11_Session* session, unsigned char* stat
 #ifdef DEBUG_WOLFPKCS11
 extern int wolfpkcs11_debugging;
 
+/* Diagnostics go to stderr, never stdout: a provider DLL is loaded into hosts
+ * (ssh, git) whose stdout is a protocol channel. (stderr also keeps these clear
+ * of internal.c's printf->stderr redirect, which would otherwise mangle the
+ * ##__VA_ARGS__ trailing comma here under MSVC.) */
 #ifndef WOLFPKCS11_ENTER
 #define WOLFPKCS11_ENTER(funcName) \
-    do { if (wolfpkcs11_debugging) printf("WOLFPKCS11 ENTER: %s\n", funcName); } while(0)
+    do { if (wolfpkcs11_debugging) fprintf(stderr, "WOLFPKCS11 ENTER: %s\n", funcName); } while(0)
 #endif
 #ifndef WOLFPKCS11_LEAVE
 #define WOLFPKCS11_LEAVE(funcName, ret) \
-    do { if (wolfpkcs11_debugging) printf("WOLFPKCS11 LEAVE: %s, returning %lu\n", funcName, (unsigned long)ret); } while(0)
+    do { if (wolfpkcs11_debugging) fprintf(stderr, "WOLFPKCS11 LEAVE: %s, returning %lu\n", funcName, (unsigned long)ret); } while(0)
 #endif
 #ifndef WOLFPKCS11_MSG
 #define WOLFPKCS11_MSG(fmt, ...) \
-    do { if (wolfpkcs11_debugging) printf("WOLFPKCS11: " fmt "\n", ##__VA_ARGS__); } while(0)
+    do { if (wolfpkcs11_debugging) fprintf(stderr, "WOLFPKCS11: " fmt "\n", ##__VA_ARGS__); } while(0)
 #endif
 #else
 #define WOLFPKCS11_ENTER(funcName)
