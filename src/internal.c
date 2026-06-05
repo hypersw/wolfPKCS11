@@ -10247,6 +10247,12 @@ static int RsaObject_GetAttr(WP11_Object* object, CK_ATTRIBUTE_TYPE type,
 static int GetEcParams(ecc_key* key, byte* data, CK_ULONG* len)
 {
     int ret = 0;
+
+    /* The EC domain params (dp) are NULL until the key material is imported
+     * (e.g. attribute read before the key is loaded). Don't dereference a
+     * NULL dp -> report "not available" rather than crashing. */
+    if (key == NULL || key->dp == NULL)
+        return NOT_AVAILABLE_E;
 #if defined(HAVE_OID_ENCODING)
     word32 dataLen = (word32)*len;
     byte* out = (data != NULL) ? (data + 2) : NULL;
@@ -10295,9 +10301,16 @@ static int GetEcParams(ecc_key* key, byte* data, CK_ULONG* len)
 static int GetEcPoint(ecc_key* key, byte* data, CK_ULONG* len)
 {
     int ret = 0;
-    word32 dataLen = key->dp->size * 2 + 1;
-    int longLen = dataLen >= ASN_LONG_LENGTH;
+    word32 dataLen;
+    int longLen;
     int i;
+
+    /* Guard against an unloaded key (NULL domain params) before deref. */
+    if (key == NULL || key->dp == NULL)
+        return NOT_AVAILABLE_E;
+
+    dataLen = key->dp->size * 2 + 1;
+    longLen = dataLen >= ASN_LONG_LENGTH;
 
     if (data == NULL)
         *len = dataLen + 2 + longLen;
