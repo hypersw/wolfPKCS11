@@ -287,6 +287,11 @@ struct WP11_Object {
     int keyDataLen;                    /* Length of encoded key data          */
     byte iv[GCM_NONCE_MID_SZ];         /* IV/nonce for encrypt/decrypt        */
     byte encoded:1;                    /* Key isn't in decoded form           */
+    byte decoded:1;                    /* Crypto material is decoded. Unlike   */
+                                       /* 'encoded' (which is 0 both when       */
+                                       /* freshly loaded and after a decode),   */
+                                       /* this is 0 until a successful decode,  */
+                                       /* so it can gate the decode loops.      */
 #endif
 
     WP11_Session* session;             /* Session object belongs to           */
@@ -5719,6 +5724,44 @@ static int wp11_Object_Decode(WP11_Object* object)
     return ret;
 }
 
+#ifndef WOLFPKCS11_NO_STORE
+/**
+ * Decide whether an object can be decoded without a user login (i.e. without
+ * the PIN-derived token key).
+ *
+ * Public-key, certificate and data objects are stored unencrypted, and TPM
+ * keys keep their private part as a TPM-sealed blob (not token-key encrypted),
+ * so all of these decode with no login. Non-TPM private keys and secret keys
+ * are encrypted at rest with the token key and must wait for C_Login.
+ *
+ * Decoding the login-free objects at load lets public material (e.g.
+ * CKA_EC_POINT / CKA_EC_PARAMS) be read before login, as PKCS#11 requires for
+ * public objects and as OpenSSH / git-ssh public-key enumeration needs.
+ *
+ * @param [in]  object  Object to test.
+ * @return  1 when decodable without login; 0 when a login is required.
+ */
+static int wp11_Object_CanDecodeWithoutLogin(WP11_Object* object)
+{
+    switch (object->objClass) {
+        case CKO_PUBLIC_KEY:
+        case CKO_CERTIFICATE:
+        case CKO_DATA:
+    #ifdef WOLFPKCS11_NSS
+        case CKO_NSS_TRUST:
+    #endif
+            return 1;
+        default:
+            break;
+    }
+#ifdef WOLFPKCS11_TPM
+    if ((object->opFlag & WP11_FLAG_TPM) == WP11_FLAG_TPM)
+        return 1;
+#endif
+    return 0;
+}
+#endif /* !WOLFPKCS11_NO_STORE */
+
 /**
  * Encode the key object. Private keys require encryption.
  *
@@ -6221,19 +6264,42 @@ static int wp11_Token_Load(WP11_Slot* slot, int tokenId, WP11_Token* token)
             token->state = WP11_TOKEN_STATE_INITIALIZED;
         }
 
-        /* If there is no pin, there is no login, so decode now */
-        if (WP11_Slot_Has_Empty_Pin(slot) && (ret == 0)) {
 #ifndef WOLFPKCS11_NO_STORE
-            /* Derive token->key from empty PIN + seed before decoding */
-            ret = HashPIN((char*)"", 0, token->seed, sizeof(token->seed),
-                          token->key, sizeof(token->key), slot);
+        /* Decode objects up front so public material is readable before
+         * C_Login, as PKCS#11 requires for public objects (and as OpenSSH /
+         * git-ssh public-key enumeration needs).
+         *  - Empty-PIN token: the token key is derivable now, so decode every
+         *    object (public AND private) -> fully login-less (pinless) use.
+         *  - PIN'd token: decode only what needs no token key (public-key /
+         *    cert / data objects, and TPM keys whose private part is a
+         *    TPM-sealed blob). Private/secret material waits for C_Login. */
+        if (ret == 0) {
+            int emptyPin = WP11_Slot_Has_Empty_Pin(slot);
+            if (emptyPin) {
+                /* Derive token->key from empty PIN + seed before decoding. */
+                ret = HashPIN((char*)"", 0, token->seed, sizeof(token->seed),
+                              token->key, sizeof(token->key), slot);
+            }
             object = token->object;
-            while (ret == 0 && object != NULL) {
-                ret = wp11_Object_Decode(object);
+            while ((ret == 0) && (object != NULL)) {
+                if (emptyPin || wp11_Object_CanDecodeWithoutLogin(object)) {
+                    int decRet = wp11_Object_Decode(object);
+                    if (decRet == 0) {
+                        object->decoded = 1;
+                    }
+                    else if (emptyPin) {
+                        /* Preserve empty-PIN strictness: a decode failure on a
+                         * login-less token is a device error. */
+                        ret = decRet;
+                        break;
+                    }
+                    /* PIN'd token: best-effort. A failure must not fail
+                     * C_Initialize; the object is retried at C_Login. */
+                }
                 object = object->next;
             }
-#endif
         }
+#endif
 
         if (ret != 0) {
             ret = CKR_DEVICE_ERROR;
@@ -7280,7 +7346,15 @@ int WP11_Slot_UserLogin(WP11_Slot* slot, char* pin, int pinLen)
         #ifndef WOLFPKCS11_NO_STORE
             object = token->object;
             while (ret == 0 && object != NULL) {
-                ret = wp11_Object_Decode(object);
+                /* Skip objects already decoded at load (TPM / public objects,
+                 * or everything on an empty-PIN token) so their live crypto
+                 * material isn't re-initialized. Only the login-gated
+                 * private/secret objects remain to decode here. */
+                if (!object->decoded) {
+                    ret = wp11_Object_Decode(object);
+                    if (ret == 0)
+                        object->decoded = 1;
+                }
                 object = object->next;
             }
         #endif
@@ -7434,6 +7508,9 @@ void WP11_Slot_Logout(WP11_Slot* slot)
         WP11_Object* object = slot->token.object;
         while (ret == 0 && object != NULL) {
             ret = wp11_Object_Encode(object, 1);
+            /* Private material is now cleared/re-encrypted; force a re-decode
+             * at the next C_Login (the decode loops key off this flag). */
+            object->decoded = 0;
             object = object->next;
         }
         /* Zero token key only on user logout — SO logout must preserve it
