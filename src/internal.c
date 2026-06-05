@@ -5660,6 +5660,12 @@ static int wp11_Object_Decode(WP11_Object* object)
 {
     int ret;
 
+    /* Idempotent: an object already decoded (e.g. public material pre-decoded
+     * at load) must not be decoded again - re-init would leak/corrupt. The
+     * login-time decode loop revisits every object, so this makes that safe. */
+    if (!object->encoded)
+        return 0;
+
     if (object->objClass == CKO_CERTIFICATE) {
         wp11_Object_Decode_Cert(object);
         ret = 0;
@@ -6234,6 +6240,25 @@ static int wp11_Token_Load(WP11_Slot* slot, int tokenId, WP11_Token* token)
             }
 #endif
         }
+#ifndef WOLFPKCS11_NO_STORE
+        else if (ret == 0) {
+            /* PKCS#11 public objects are readable without login. Pre-decode the
+             * public material now (regardless of PIN) so attributes such as
+             * CKA_EC_POINT/CKA_EC_PARAMS can be read before C_Login - required
+             * by SSH/OpenSSH public-key enumeration. TPM keys carry a plaintext
+             * public area (no token key needed); non-TPM public keys are stored
+             * unencrypted. Private (non-TPM) material stays encoded and is
+             * decoded at login. Failures here are tolerated. */
+            object = token->object;
+            while (object != NULL) {
+                if (((object->opFlag & WP11_FLAG_TPM) != 0) ||
+                        (object->objClass == CKO_PUBLIC_KEY)) {
+                    (void)wp11_Object_Decode(object);
+                }
+                object = object->next;
+            }
+        }
+#endif
 
         if (ret != 0) {
             ret = CKR_DEVICE_ERROR;
