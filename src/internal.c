@@ -96,6 +96,17 @@
 #define ECC_KEYCOMPLEN         32
 #endif /* WOLFSSL_MAXQ10XX_CRYPTO */
 
+/* A PKCS#11 provider DLL is loaded into host processes (ssh, git, Firefox, ...)
+ * whose stdout is often a data/protocol channel; writing to it corrupts that
+ * stream (e.g. git aborts with "protocol error: bad line length character").
+ * Route the diagnostic/error printf()s in this file to stderr instead. Defined
+ * after all #includes so no library header is affected. Opt out with
+ * WOLFPKCS11_KEEP_STDOUT. */
+#ifndef WOLFPKCS11_KEEP_STDOUT
+    #undef printf
+    #define printf(...) fprintf(stderr, __VA_ARGS__)
+#endif
+
 #if defined(WC_RSA_BLINDING) && (!defined(HAVE_FIPS) || \
     (defined(HAVE_FIPS_VERSION) && (HAVE_FIPS_VERSION > 2)))
 #define WOLFPKCS11_NEED_RSA_RNG
@@ -6506,10 +6517,16 @@ static int wp11_TpmInit(WP11_Slot* slot)
         ret = wolfTPM2_GetCapabilities(&slot->tpmDev, &caps);
     }
     if (ret == 0) {
-        printf("Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), "
+#ifdef WOLFPKCS11_VERBOSE_BUILD
+        /* Diagnostics only, and to stderr -- never stdout. A PKCS#11 provider
+         * DLL is loaded into host processes (e.g. ssh) whose stdout is a
+         * protocol channel; writing there corrupts it (git aborts with
+         * "protocol error: bad line length character: Mfg"). */
+        fprintf(stderr, "Mfg %s (%d), Vendor %s, Fw %u.%u (0x%x), "
             "FIPS 140-2 %d, CC-EAL4 %d\n",
             caps.mfgStr, caps.mfg, caps.vendorStr, caps.fwVerMajor,
             caps.fwVerMinor, caps.fwVerVendor, caps.fips140_2, caps.cc_eal4);
+#endif
     }
     if (ret == 0) {
         ret = wolfTPM2_SetCryptoDevCb(&slot->tpmDev, wolfTPM2_CryptoDevCb,
