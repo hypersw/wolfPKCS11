@@ -75,6 +75,11 @@ extern "C" {
  //#define HAVE_SCRYPT /* For PKCS11 Pin. Scrypt uses massive memory */
 //#define WOLFPKCS11_USER_ENV
 
+/* Allow an empty user PIN so a login-less (pinless) token can be created:
+ * with an empty PIN, WP11_Slot_Has_Empty_Pin is true and objects are decoded
+ * at load with no C_Login required (default min PIN length is 4). */
+#define WP11_MIN_PIN_LEN 0
+
 /* PKCS11 TPM */
 #define WOLFPKCS11_TPM
 #ifndef WOLFTPM_WINAPI
